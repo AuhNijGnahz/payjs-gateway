@@ -9,6 +9,8 @@
 
 PAYJS 针对个人主体提供微信支付接入能力，是经过检验的正规、安全、可靠的微信支付个人开发接口
 
+本项目适用于<a href="https://github.com/Tai7sy/card-system">Tai7sy/card-system</a>
+
 ## 使用方法
 
 1、在app\Library\Pay 新建文件夹，可以任意命名（这里假设为PayjsWX）。
