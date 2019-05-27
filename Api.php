@@ -17,15 +17,6 @@ class Api implements ApiInterface
         $this->url_return = SYS_URL . '/pay/return/' . $id;
     }
 
-    private function CreatePayjsObject($config){
-        $payconfig = [
-            'mchid' => $config['mchid'],
-            'key' => $config['key']
-        ];
-        $Payjs = new Payjs($payconfig);
-        return $Payjs;
-    }
-
     /**
      * @param array $config 配置信息
      * @param string $out_trade_no 发卡系统订单号
@@ -42,15 +33,16 @@ class Api implements ApiInterface
             'mchid' => $config['mchid'],
             'key' => $config['key']
         ];
-        $Payjs = new Payjs($payconfig);
+        $payjs = new Payjs($payconfig);
         $data = [
             'body' => $body,
             'total_fee' => $amount_cent,
             'out_trade_no' => $out_trade_no,
             'notify_url' => $this->url_notify,
         ];
-        $url_pay = $Payjs->native($data);
- 
+
+        $url_pay = $payjs->native($data);
+        \App\Order::where('order_no', $out_trade_no)->update(['pay_trade_no' => $url_pay['payjs_order_id']]);
         // 跳转支付页面
         header('location: /qrcode/pay/' . $out_trade_no . '/wechat?url=' . urlencode($url_pay['code_url']));
         exit;
@@ -66,8 +58,14 @@ class Api implements ApiInterface
     {
         $isNotify = isset($config['isNotify']) && $config['isNotify'];
         $_REQUEST = $_POST;
+        $payconfig = [
+            'mchid' => $config['mchid'],
+            'key' => $config['key']
+        ];
+        $payjs = new Payjs($payconfig);
         if ($isNotify) {
-            if ($_REQUEST['return_code'] != 1) { // 一些校验, 如签名校验等
+        	$notify_info = $payjs->notify();
+            if ($notify_info === '验签失败') { // 一些校验, 如签名校验等
                 \Log::error('支付失败！');
                 echo 'error';
                 return false;
@@ -75,24 +73,23 @@ class Api implements ApiInterface
                 echo 'success';
             }
 
-            $order_no = $_REQUEST['out_trade_no'];  // 发卡系统内交易单号
-            $total_fee = $_REQUEST['total_fee']; // 实际支付金额, 单位, 分
-            $pay_trade_no = $_REQUEST['payjs_order_id']; // 支付系统内订单号/流水号
+            $order_no = $notify_info['out_trade_no'];  // 发卡系统内交易单号
+            $total_fee = $notify_info['total_fee']; // 实际支付金额, 单位, 分
+            $pay_trade_no = $notify_info['payjs_order_id']; // 支付系统内订单号/流水号
             $successCallback($order_no, $total_fee, $pay_trade_no);
             return true;
 
         } else {
             $order_no = @$config['out_trade_no']; // 发卡系统内交易单号
-            $_REQUEST = file_get_contents('php://input');
-            $_REQUEST = json_decode($_REQUEST, true);
+            $order = \App\Order::where('order_no', $order_no)->firstOrFail();
             if (strlen($order_no) < 5) {
                 throw new \Exception('交易单号未传入');
             }
-
-            if ($_REQUEST['out_trade_no'] === $order_no) { // 一些校验, 如签名校验等
-                $order_no = $_REQUEST['out_trade_no'];  // 发卡系统内交易单号
-                $total_fee = $_REQUEST['total_fee']; // 实际支付金额, 单位, 分
-                $pay_trade_no = $_REQUEST['payjs_order_id']; // 支付系统内订单号/流水号
+            $result = $payjs->check($order->pay_trade_no);
+            if ($result['status'] === 1) { // 一些校验, 如签名校验等
+                $order_no = $result['out_trade_no'];  // 发卡系统内交易单号
+                $total_fee = $result['total_fee']; // 实际支付金额, 单位, 分
+                $pay_trade_no = $result['payjs_order_id']; // 支付系统内订单号/流水号
                 $successCallback($order_no, $total_fee, $pay_trade_no);
                 return true;
             } else {
